@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Panel</title>
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+  <button onclick="logout()">Logout</button>
+  <a href="index.html">Home</a>
+  <h1>Product Admin Panel</h1>
+
+  <!-- ADD / EDIT FORM -->
+  <form id="product-form">
+    <input type="hidden" id="product-id">
+
+    <label>Product Name</label>
+    <input type="text" id="name" required>
+
+    <label>Category</label>
+    <input type="text" id="category" required>
+
+    <label>Price (₦)</label>
+    <input type="number" id="price" required>
+
+    <label>Hot Deal</label>
+    <select id="hotdeal">
+      <option value="true">Yes</option>
+      <option value="false">No</option>
+    </select>
+
+    <label>Main Image URL</label>
+    <input type="text" id="image" required>
+
+    <label>Extra Images (comma separated URLs)</label>
+    <textarea id="images"></textarea>
+
+    <label>Sizes (comma separated)</label>
+    <input type="text" id="sizes">
+
+    <button type="submit">Save Product</button>
+  </form>
+
+  <hr>
+
+  <!-- PRODUCT LIST -->
+  <h2>Products</h2>
+ <div id="product-list"></div>
+
+
+  <!-- Firebase SDK -->
+  <script>
+  if (localStorage.getItem("adminLoggedIn") !== "true") {
+    window.location.href = "admin-login.html";
+  }
+</script>
+<script>
+  function logout() {
+    localStorage.removeItem("adminLoggedIn");
+    window.location.href = "admin-login.html";
+  }
+</script>
+
+  <script type="module" src="admin.js"></script>
+</body>
+</html>

@@ -126,7 +126,7 @@ document.getElementById("checkout-link")?.addEventListener("click", function (e)
   let subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   message += `\nTotal: ${formatCurrency(subtotal)}\n\nPlease confirm my order.`;
 
-  const phoneNumber = "2347018527982"; // change to your WhatsApp number
+  const phoneNumber = "2348069055697"; // change to your WhatsApp number
   const url = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
 
   window.open(url, "_blank");

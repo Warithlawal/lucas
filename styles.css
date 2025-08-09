@@ -231,8 +231,7 @@ nav {
 
 .banner2 {
   background: url("./images/banner2.jpeg") center/cover no-repeat;
-  background-attachment: fixed;
-  min-height: calc(100vh - 250px);
+  min-height: calc(100vh - 300px);
   margin: 50px 40px;
   position: relative;
   overflow: hidden;

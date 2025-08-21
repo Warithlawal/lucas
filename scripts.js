@@ -1,12 +1,55 @@
+// ===== FIREBASE IMPORTS =====
 import { collection, getDocs } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
 
+// ✅ Firestore db is expected on window (set in firebase.js)
 const db = window.db;
-let allProducts = [];
 
+// ---------- STATE ----------
+let allProducts = [];
+let currentProducts = [];   // active (filtered) list
+let currentCategory = null; // null or slug
+let currentPage = 1;
+const PRODUCTS_PER_PAGE = 10;
+
+// ---------- UTILS ----------
 function formatCurrency(n) {
-  return `₦${Number(n).toLocaleString()}`;
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN"
+  }).format(n);
 }
 
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function updateUrlParams({ category, page }) {
+  const url = new URL(window.location.href);
+
+  if (category && category !== "all") {
+    url.searchParams.set("category", category);
+  } else {
+    url.searchParams.delete("category");
+  }
+
+  if (page && page > 1) {
+    url.searchParams.set("page", String(page));
+  } else {
+    url.searchParams.delete("page");
+  }
+
+  window.history.replaceState({}, "", url);
+}
+
+function filterByCategory(category) {
+  if (!category || category === "all") return [...allProducts];
+  const c = String(category).toLowerCase().trim();
+  return allProducts.filter(
+    p => (p.category || "").toLowerCase().trim() === c
+  );
+}
+
+// ---------- CART ----------
 function updateCartCount() {
   const cart = JSON.parse(localStorage.getItem("cart")) || [];
   const count = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -14,106 +57,10 @@ function updateCartCount() {
   if (badge) badge.textContent = count;
 }
 
-function renderProducts(products, page = 1, productsPerPage = 10) {
-  const container = document.getElementById("products-container");
-  const pagination = document.getElementById("pagination");
-  if (!container || !pagination) return;
-
-  container.innerHTML = "";
-  const start = (page - 1) * productsPerPage;
-  const end = start + productsPerPage;
-  const currentProducts = products.slice(start, end);
-
-  currentProducts.forEach(product => {
-    const card = document.createElement("div");
-    card.classList.add("products-card");
-
-    const img = new Image();
-    img.src = product.image;
-    img.alt = product.name;
-
-    const link = document.createElement("a");
-    link.href = `product-page.html?id=${product.id}`;
-    link.appendChild(img);
-
-    const productInfoContainer = document.createElement("div");
-    productInfoContainer.classList.add("add-cart-container");
-
-    const name = document.createElement("p");
-    name.classList.add("product-name");
-    name.textContent = product.name;
-
-    const price = document.createElement("p");
-    price.classList.add("product-price");
-    price.textContent = formatCurrency(product.price);
-
-    const textContainer = document.createElement("div");
-    textContainer.appendChild(name);
-    textContainer.appendChild(price);
-
-    productInfoContainer.appendChild(textContainer);
-    card.appendChild(link);
-    card.appendChild(productInfoContainer);
-
-    container.appendChild(card);
-  });
-
-  renderPagination(products.length, page, productsPerPage);
-}
-
-function renderPagination(totalItems, currentPage, itemsPerPage) {
-  const pagination = document.getElementById("pagination");
-  if (!pagination) return;
-
-  pagination.innerHTML = "";
-
-  const totalPages = Math.ceil(totalItems / itemsPerPage);
-  if (totalPages <= 1) return;
-
-  for (let i = 1; i <= totalPages; i++) {
-    const btn = document.createElement("button");
-    btn.textContent = i;
-    if (i === currentPage) btn.classList.add("active");
-
-    btn.addEventListener("click", () => {
-      renderProducts(allProducts, i);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-
-    pagination.appendChild(btn);
-  }
-}
-
-async function loadProducts() {
-  const loader = document.getElementById("page-loader");
-  if (loader) loader.style.display = "flex";
-
-  const snapshot = await getDocs(collection(db, "products"));
-  allProducts = [];
-  snapshot.forEach(doc => {
-    const product = doc.data();
-    product.id = doc.id;
-    allProducts.push(product);
-  });
-
-  const urlParams = new URLSearchParams(window.location.search);
-  const categoryFilter = urlParams.get("category");
-
-  if (categoryFilter) {
-    const filtered = allProducts.filter(p => p.category?.toLowerCase() === categoryFilter.toLowerCase());
-    renderProducts(filtered, 1);
-  } else {
-    renderProducts(allProducts, 1);
-  }
-
-  if (loader) loader.style.display = "none";
-}
-
 function loadCart() {
   const cart = JSON.parse(localStorage.getItem("cart")) || [];
   const cartContainer = document.getElementById("cart-container");
   const subtotalElement = document.querySelector(".subtotal-price");
-
   if (!cartContainer || !subtotalElement) return;
 
   cartContainer.innerHTML = "";
@@ -146,7 +93,6 @@ function loadCart() {
               <p>Size: ${item.size}</p>
             </div>
           </div>
-
           <div class="quantity-btn">
             <div class="quantity">
               <div class="quantity-flex">
@@ -158,7 +104,6 @@ function loadCart() {
             <i class="fa-light fa-trash" data-index="${index}"></i>
           </div>
         </div>
-
         <div class="cart-total align-right">
           <p>${formatCurrency(total)}</p>
         </div>
@@ -207,28 +152,159 @@ function attachCartEvents() {
   });
 }
 
+// ---------- PRODUCTS + PAGINATION ----------
+function renderProducts(products, page = 1, productsPerPage = PRODUCTS_PER_PAGE) {
+  currentProducts = products;
+  currentPage = page;
+
+  const container = document.getElementById("products-container");
+  const pagination = document.getElementById("pagination");
+  if (!container || !pagination) return;
+
+  container.innerHTML = "";
+
+  const total = products.length;
+  const totalPages = Math.ceil(total / productsPerPage) || 1;
+  const safePage = clamp(page, 1, totalPages);
+
+  const start = (safePage - 1) * productsPerPage;
+  const end = start + productsPerPage;
+  const pageProducts = products.slice(start, end);
+
+  if (pageProducts.length === 0) {
+    container.innerHTML = `<p style="padding:20px">No products found in this category.</p>`;
+    pagination.innerHTML = "";
+    return;
+  }
+
+  pageProducts.forEach(product => {
+    const card = document.createElement("div");
+    card.classList.add("products-card");
+
+    const img = new Image();
+    img.src = product.image;
+    img.alt = product.name;
+
+    const link = document.createElement("a");
+    link.href = `product-page.html?id=${product.id}`;
+    link.appendChild(img);
+
+    const productInfoContainer = document.createElement("div");
+    productInfoContainer.classList.add("add-cart-container");
+
+    const name = document.createElement("p");
+    name.classList.add("product-name");
+    name.textContent = product.name;
+
+    const price = document.createElement("p");
+    price.classList.add("product-price");
+    price.textContent = formatCurrency(product.price);
+
+    const textContainer = document.createElement("div");
+    textContainer.appendChild(name);
+    textContainer.appendChild(price);
+
+    productInfoContainer.appendChild(textContainer);
+    card.appendChild(link);
+    card.appendChild(productInfoContainer);
+
+    container.appendChild(card);
+  });
+
+  renderPagination(total, safePage, productsPerPage);
+
+  updateUrlParams({
+    category: currentCategory || "all",
+    page: safePage
+  });
+}
+
+function renderPagination(totalItems, currentPage, itemsPerPage) {
+  const pagination = document.getElementById("pagination");
+  if (!pagination) return;
+
+  pagination.innerHTML = "";
+
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  if (totalPages <= 1) return;
+
+  for (let i = 1; i <= totalPages; i++) {
+    const btn = document.createElement("button");
+    btn.textContent = i;
+    btn.type = "button";
+    if (i === currentPage) btn.classList.add("active");
+
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      renderProducts(currentProducts, i, itemsPerPage);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    pagination.appendChild(btn);
+  }
+}
+
+// ---------- CATEGORY ----------
 function setupCategoryFilter() {
   const links = document.querySelectorAll(".category-link");
 
   links.forEach(link => {
     link.addEventListener("click", (e) => {
       e.preventDefault();
-
       links.forEach(l => l.classList.remove("active"));
       link.classList.add("active");
 
-      const selectedCategory = link.dataset.category.toLowerCase();
+      const selected = link.dataset.category?.toLowerCase() || "all";
+      currentCategory = (selected === "all") ? null : selected;
 
-      if (selectedCategory === "all") {
-        renderProducts(allProducts, 1);
-      } else {
-        const filtered = allProducts.filter(p => p.category?.toLowerCase() === selectedCategory);
-        renderProducts(filtered, 1);
-      }
+      const filtered = filterByCategory(currentCategory || "all");
+      renderProducts(filtered, 1);
     });
   });
 }
 
+function highlightActiveCategory(slug) {
+  const links = document.querySelectorAll(".category-link");
+  const target = (slug || "all").toLowerCase();
+  links.forEach(link => {
+    const val = link.dataset.category?.toLowerCase() || "";
+    if ((target === "all" && (val === "all" || val === "")) || val === target) {
+      link.classList.add("active");
+    } else {
+      link.classList.remove("active");
+    }
+  });
+}
+
+// ---------- LOADERS ----------
+async function loadProducts() {
+  const loader = document.getElementById("page-loader");
+  if (loader) loader.style.display = "flex";
+
+  const snapshot = await getDocs(collection(db, "products"));
+  allProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+  // 🔍 Debugging: see actual categories from Firestore
+  console.log("Loaded product categories:", allProducts.map(p => p.category));
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const categoryParam = (urlParams.get("category") || "all").toLowerCase();
+  const pageParam = parseInt(urlParams.get("page") || "1", 10);
+
+  currentCategory = categoryParam === "all" ? null : categoryParam;
+  const filtered = filterByCategory(currentCategory || "all");
+
+  const totalPages = Math.ceil(filtered.length / PRODUCTS_PER_PAGE) || 1;
+  const safePage = clamp(pageParam, 1, totalPages);
+
+  renderProducts(filtered, safePage, PRODUCTS_PER_PAGE);
+  highlightActiveCategory(categoryParam);
+
+  if (loader) loader.style.display = "none";
+}
+
+// ---------- OTHER LOADERS ----------
 async function loadCategories() {
   const container = document.getElementById("category-container");
   if (!container) return;
@@ -238,17 +314,18 @@ async function loadCategories() {
 
   snapshot.forEach(doc => {
     const category = doc.data();
+    const slug = (category.slug || category.name || "").toLowerCase();
 
     const card = document.createElement("div");
     card.classList.add("category-card");
 
     card.innerHTML = `
-    <img src="${category.image}" alt="${category.name}">
-    <div class="layer">
-      <p>${category.name}</p>
-      <a href="products.html?category=${encodeURIComponent(category.slug || category.name.toLowerCase())}">Shop now</a>
-    </div>
-  `;
+      <img src="${category.image}" alt="${category.name}">
+      <div class="layer">
+        <p>${category.name}</p>
+        <a href="products.html?category=${encodeURIComponent(slug)}">Shop now</a>
+      </div>
+    `;
 
     container.appendChild(card);
   });
@@ -285,7 +362,6 @@ async function loadHeroBanner() {
   if (snapshot.empty) return;
 
   const bannerData = snapshot.docs[0].data();
-
   const hero = document.getElementById("hero-banner");
   const title = document.getElementById("hero-title");
   const link = document.getElementById("hero-link");
@@ -302,7 +378,7 @@ async function loadHeroBanner() {
   }
 }
 
-// ✅ Main init function
+// ---------- INIT ----------
 document.addEventListener("DOMContentLoaded", () => {
   loadHeroBanner();
   loadProducts();
@@ -316,7 +392,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const categoryList = document.getElementById("category-filter");
 
   toggleArrow?.addEventListener("click", () => {
-    categoryList.classList.toggle("show");
+    categoryList?.classList.toggle("show");
     toggleArrow.classList.toggle("rotate");
   });
 });
